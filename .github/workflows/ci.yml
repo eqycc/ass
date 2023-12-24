@@ -24,7 +24,7 @@ jobs:
         run: dotnet restore ./Above.Fix.sln
         
       - name: Build
-        run: dotnet build./Above.Fix.sln --configuration Release --no-restore
+        run: dotnet build ./Above.Fix.sln --configuration Release --no-restore
         
       - name: Test
         run: dotnet test ./Above.Fix.sln --configuration Release --no-build --no-restore --verbosity normal
