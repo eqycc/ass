@@ -1,4 +1,6 @@
+using System;
 using System.IO;
+using System.Linq;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Hosting;
@@ -9,34 +11,28 @@ using Above.Fix.EntityFrameworkCore;
 using Above.Fix.Localization;
 using Above.Fix.MultiTenancy;
 using Above.Fix.Web.Menus;
+using Microsoft.AspNetCore.Cors;
 using Microsoft.OpenApi.Models;
 using OpenIddict.Validation.AspNetCore;
 using Volo.Abp;
 using Volo.Abp.Account.Web;
 using Volo.Abp.AspNetCore.Mvc;
 using Volo.Abp.AspNetCore.Mvc.Localization;
-using Volo.Abp.AspNetCore.Mvc.UI;
-using Volo.Abp.AspNetCore.Mvc.UI.Bootstrap;
 using Volo.Abp.AspNetCore.Mvc.UI.Bundling;
-using Volo.Abp.AspNetCore.Mvc.UI.MultiTenancy;
 using Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite;
 using Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite.Bundling;
 using Volo.Abp.AspNetCore.Mvc.UI.Theme.Shared;
 using Volo.Abp.AspNetCore.Serilog;
 using Volo.Abp.Autofac;
 using Volo.Abp.AutoMapper;
-using Volo.Abp.FeatureManagement;
 using Volo.Abp.Identity.Web;
-using Volo.Abp.Localization;
 using Volo.Abp.Modularity;
-using Volo.Abp.PermissionManagement.Web;
 using Volo.Abp.Security.Claims;
 using Volo.Abp.SettingManagement.Web;
 using Volo.Abp.Swashbuckle;
 using Volo.Abp.TenantManagement.Web;
 using Volo.Abp.OpenIddict;
 using Volo.Abp.UI.Navigation.Urls;
-using Volo.Abp.UI;
 using Volo.Abp.UI.Navigation;
 using Volo.Abp.VirtualFileSystem;
 
@@ -111,6 +107,8 @@ public class FixWebModule : AbpModule
         ConfigureNavigationServices();
         ConfigureAutoApiControllers();
         ConfigureSwaggerServices(context.Services);
+
+        ConfigureCors(context, configuration);
     }
 
     private void ConfigureAuthentication(ServiceConfigurationContext context)
@@ -183,6 +181,33 @@ public class FixWebModule : AbpModule
         });
     }
 
+    /// <summary>
+    /// 配置跨域
+    /// </summary>
+    /// <param name="context"></param>
+    /// <param name="configuration"></param>
+    private void ConfigureCors(ServiceConfigurationContext context, IConfiguration configuration)
+    {
+        context.Services.AddCors(options =>
+        {
+            options.AddDefaultPolicy(builder =>
+            {
+                builder
+                    .WithOrigins(configuration["App:CorsOrigins"]?
+                                     .Split(",", StringSplitOptions.RemoveEmptyEntries)
+                                     .Select(o => o.RemovePostFix("/"))
+                                     .ToArray() ??
+                                 Array.Empty<string>())
+                    .WithAbpExposedHeaders()
+                    .SetIsOriginAllowedToAllowWildcardSubdomains()
+                    .AllowAnyHeader()
+                    .AllowAnyMethod()
+                    .AllowCredentials();
+            });
+        });
+    }
+    
+
     private void ConfigureSwaggerServices(IServiceCollection services)
     {
         services.AddAbpSwaggerGen(
@@ -209,8 +234,17 @@ public class FixWebModule : AbpModule
 
         if (!env.IsDevelopment())
         {
-            app.UseErrorPage();
+            app.UseErrorPage(); // 错误页面
         }
+        
+        
+        var forwardedHeadersOptions = new ForwardedHeadersOptions
+        {
+            ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto  // 配置转发头
+        };
+        forwardedHeadersOptions.KnownNetworks.Clear();
+        forwardedHeadersOptions.KnownProxies.Clear();
+        app.UseForwardedHeaders(forwardedHeadersOptions);
 
         app.UseCorrelationId();
         app.UseStaticFiles();
@@ -220,7 +254,7 @@ public class FixWebModule : AbpModule
 
         if (MultiTenancyConsts.IsEnabled)
         {
-            app.UseMultiTenancy();
+            app.UseMultiTenancy();  // 多租户
         }
 
         app.UseUnitOfWork();
@@ -231,6 +265,16 @@ public class FixWebModule : AbpModule
         app.UseAbpSwaggerUI(options =>
         {
             options.SwaggerEndpoint("/swagger/v1/swagger.json", "Fix API");
+            
+            options.DefaultModelsExpandDepth(-1);  // 隐藏Models
+            options.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.None); // 折叠所有方法
+            options.EnableDeepLinking(); // 启用深度链接
+            options.DisplayOperationId(); // 显示操作ID
+            options.EnableFilter(); // 启用过滤器
+            options.ShowExtensions(); // 显示扩展
+            options.EnableValidator(); // 启用验证器
+            options.EnableTryItOutByDefault(); // 默认尝试
+            options.ShowCommonExtensions(); // 显示常用扩展
         });
 
         app.UseAuditing();
